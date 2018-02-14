@@ -29,7 +29,7 @@ from six.moves import cPickle as pickle
 
 from sphinx import package_dir, __display_version__
 from sphinx.application import ENV_PICKLE_FILENAME
-from sphinx.builders import Builder
+from sphinx.builders import Builder, FinishStatus
 from sphinx.config import string_classes
 from sphinx.deprecation import RemovedInSphinx20Warning
 from sphinx.environment.adapters.asset import ImageAdapter
@@ -219,6 +219,7 @@ class StandaloneHTMLBuilder(Builder):
     allow_parallel = True
     out_suffix = '.html'
     link_suffix = '.html'  # defaults to matching out_suffix
+    indexer = None  # type: Any
     indexer_format = js_index  # type: Any
     indexer_dumps_unicode = True
     # create links to original images from images [True/False]
@@ -620,18 +621,24 @@ class StandaloneHTMLBuilder(Builder):
         title = title and self.render_partial(title)['title'] or ''
         self.index_page(docname, doctree, title)
 
-    def finish(self):
-        # type: () -> None
-        self.finish_tasks.add_task(self.gen_indices)
-        self.finish_tasks.add_task(self.gen_additional_pages)
-        self.finish_tasks.add_task(self.copy_image_files)
-        self.finish_tasks.add_task(self.copy_download_files)
-        self.finish_tasks.add_task(self.copy_static_files)
-        self.finish_tasks.add_task(self.copy_extra_files)
-        self.finish_tasks.add_task(self.write_buildinfo)
+    def finish(self, status=None):
+        # type: (int) -> None
+        if status in (FinishStatus.DONE, None):
+            self.finish_tasks.add_task(self.gen_indices)
+            self.finish_tasks.add_task(self.gen_additional_pages)
+            self.finish_tasks.add_task(self.copy_image_files)
+            self.finish_tasks.add_task(self.copy_download_files)
+            self.finish_tasks.add_task(self.copy_static_files)
+            self.finish_tasks.add_task(self.copy_extra_files)
+            self.finish_tasks.add_task(self.write_buildinfo)
 
-        # dump the search index
-        self.handle_finish()
+            # dump the search index
+            self.handle_finish()
+        elif status == FinishStatus.NO_UPDATE:
+            self.finish_tasks.add_task(self.copy_image_files)
+            self.finish_tasks.add_task(self.copy_download_files)
+            self.finish_tasks.add_task(self.copy_static_files)
+            self.finish_tasks.add_task(self.copy_extra_files)
 
     def gen_indices(self):
         # type: () -> None
@@ -1257,29 +1264,38 @@ class SingleFileHTMLBuilder(StandaloneHTMLBuilder):
         self.write_doc(self.config.master_doc, doctree)
         logger.info('done')
 
-    def finish(self):
-        # type: () -> None
+    def finish(self, status=None):
+        # type: (int) -> None
         # no indices or search pages are supported
         logger.info(bold('writing additional files...'), nonl=1)
 
-        # additional pages from conf.py
-        for pagename, template in self.config.html_additional_pages.items():
-            logger.info(' ' + pagename, nonl=1)
-            self.handle_page(pagename, {}, template)
+        if status in (FinishStatus.DONE, None):
+            # additional pages from conf.py
+            for pagename, template in self.config.html_additional_pages.items():
+                logger.info(' ' + pagename, nonl=1)
+                self.handle_page(pagename, {}, template)
 
-        if self.config.html_use_opensearch:
-            logger.info(' opensearch', nonl=1)
-            fn = path.join(self.outdir, '_static', 'opensearch.xml')
-            self.handle_page('opensearch', {}, 'opensearch.xml', outfilename=fn)
+            if self.config.html_use_opensearch:
+                logger.info(' opensearch', nonl=1)
+                fn = path.join(self.outdir, '_static', 'opensearch.xml')
+                self.handle_page('opensearch', {}, 'opensearch.xml', outfilename=fn)
 
-        logger.info('')
+            logger.info('')
 
-        self.copy_image_files()
-        self.copy_download_files()
-        self.copy_static_files()
-        self.copy_extra_files()
-        self.write_buildinfo()
-        self.dump_inventory()
+            self.copy_image_files()
+            self.copy_download_files()
+            self.copy_static_files()
+            self.copy_extra_files()
+            self.write_buildinfo()
+            self.dump_inventory()
+        elif status == FinishStatus.NO_UPDATE:
+            logger.info('')
+
+            self.copy_image_files()
+            self.copy_image_files()
+            self.copy_download_files()
+            self.copy_static_files()
+            self.copy_extra_files()
 
 
 class SerializingHTMLBuilder(StandaloneHTMLBuilder):

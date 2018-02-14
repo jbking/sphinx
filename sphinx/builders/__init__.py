@@ -45,6 +45,12 @@ if False:
 logger = logging.getLogger(__name__)
 
 
+# enum
+class FinishStatus(object):
+    DONE = 1
+    NO_UPDATE = 2
+
+
 class Builder(object):
     """
     Builds target formats from the reST sources.
@@ -371,6 +377,13 @@ class Builder(object):
         else:
             if method == 'update' and not docnames:
                 logger.info(bold('no targets are out of date.'))
+                self.finish_tasks = SerialTasks()
+                try:
+                    self.finish(FinishStatus.NO_UPDATE)
+                except TypeError:
+                    # no callable should be here
+                    pass
+                self.finish_tasks.join()
                 return
 
         # filter "docnames" (list of outdated files) by the updated
@@ -396,7 +409,11 @@ class Builder(object):
         self.write(docnames, list(updated_docnames), method)
 
         # finish (write static files etc.)
-        self.finish()
+        try:
+            self.finish(FinishStatus.DONE)
+        except TypeError:
+            # fallback for backward compatibility
+            self.finish()
 
         # wait for all tasks
         self.finish_tasks.join()
@@ -487,8 +504,8 @@ class Builder(object):
         """
         pass
 
-    def finish(self):
-        # type: () -> None
+    def finish(self, status=None):
+        # type: (int) -> None
         """Finish the building process.
 
         The default implementation does nothing.
